@@ -36,6 +36,7 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
@@ -54,13 +55,17 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import android.widget.Toast.LENGTH_SHORT
+import kotlinx.android.synthetic.main.fragment_camera2_video.*
+import okhttp3.*
 import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import kotlin.collections.ArrayList
+import java.io.File
 
 class Camera2VideoFragment : Fragment(), View.OnClickListener,
         ActivityCompat.OnRequestPermissionsResultCallback {
@@ -153,6 +158,8 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
      */
     private val cameraOpenCloseLock = Semaphore(1)
 
+    private val server_ip = "192.168.0.177"
+
     /**
      * [CaptureRequest.Builder] for the camera preview
      */
@@ -204,7 +211,7 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         textureView = view.findViewById(R.id.texture)
-        videoButton = view.findViewById<Button>(R.id.video).also {
+        videoButton = video.also {
             it.setOnClickListener(this)
         }
         view.findViewById<View>(R.id.info).setOnClickListener(this)
@@ -553,7 +560,7 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
                         mediaRecorder?.start()
                         Handler().postDelayed({
                             stopRecordingVideo()
-                        },1000)
+                        },2000)
                     }
                 }
 
@@ -590,8 +597,59 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
         }
 
         if (activity != null) showToast("Video saved: $nextVideoAbsolutePath")
+
+        Thread.sleep(100)
+        val url = "http://72.217.34.234:5000/"
+
+        val uri = Uri.parse("$nextVideoAbsolutePath")
+
+        val contentResolver = context?.contentResolver
+
+        Log.d("FILE PATH", nextVideoAbsolutePath)
+        //val ctype = contentResolver?.getType(uri)
+
+        val stream = File(nextVideoAbsolutePath).inputStream()
+        val byteArray = stream?.readBytes()
+
+
+        val postBody = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("video","new_vid.mp4", RequestBody.create(MediaType.parse("video/mp4"), byteArray))
+                .build()
+
+        postRequest(url, postBody)
+
         nextVideoAbsolutePath = null
         startPreview()
+    }
+
+    private fun postRequest(postUrl: String, requestBody: RequestBody){
+        Log.d("URL STRING", postUrl)
+        val client = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+
+
+        val request =Request.Builder().url(postUrl).post(requestBody).build()
+
+        client.newCall(request).enqueue( object : Callback {
+
+            override fun onFailure(call: Call?, e: IOException?) {
+                call?.cancel()
+
+                activity?.runOnUiThread(java.lang.Runnable {
+                    textView4.setText("Failed to connect to server")
+                })
+            }
+
+            override fun onResponse(call: Call?, response: Response?) {
+                activity?.runOnUiThread(java.lang.Runnable {
+
+                    try {
+                        textView4.setText(response?.body()?.string())
+                    }catch (e:IOException){
+                        e.printStackTrace()
+                    }
+                })
+            }
+
+        })
     }
 
     private fun showToast(message : String) = Toast.makeText(activity, message, LENGTH_SHORT).show()
