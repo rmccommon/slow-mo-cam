@@ -66,6 +66,8 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import kotlin.collections.ArrayList
 import java.io.File
+import com.netcompss.ffmpeg4android.*
+import com.netcompss.loader.LoadJNI
 
 class Camera2VideoFragment : Fragment(), View.OnClickListener,
         ActivityCompat.OnRequestPermissionsResultCallback {
@@ -117,6 +119,10 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
      */
     private lateinit var videoButton: Button
 
+    private lateinit var sendButton: Button
+
+    private lateinit var inputText: TextView
+
     /**
      * A reference to the opened [android.hardware.camera2.CameraDevice].
      */
@@ -142,7 +148,7 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
      * Whether the app is recording video now
      */
     private var isRecordingVideo = false
-
+    private var isReadyToSend = false
     /**
      * An additional thread for running tasks that shouldn't block the UI.
      */
@@ -214,6 +220,10 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
         videoButton = video.also {
             it.setOnClickListener(this)
         }
+        sendButton = send.also {
+            it.setOnClickListener(this)
+        }
+        inputText = editText
         view.findViewById<View>(R.id.info).setOnClickListener(this)
     }
 
@@ -241,6 +251,7 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
     override fun onClick(view: View) {
         when (view.id) {
             R.id.video -> if (isRecordingVideo) stopRecordingVideo() else startRecordingVideo()
+            R.id.send -> if (isReadyToSend) sendVideo()
             R.id.info -> {
                 if (activity != null) {
                     AlertDialog.Builder(activity)
@@ -596,9 +607,17 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
             reset()
         }
 
+
         if (activity != null) showToast("Video saved: $nextVideoAbsolutePath")
 
-        Thread.sleep(100)
+        isReadyToSend = true
+
+        startPreview()
+    }
+
+    private fun sendVideo(){
+
+        val vk = LoadJNI()
         val url = "http://72.217.34.234:5000/"
 
         val uri = Uri.parse("$nextVideoAbsolutePath")
@@ -608,17 +627,25 @@ class Camera2VideoFragment : Fragment(), View.OnClickListener,
         Log.d("FILE PATH", nextVideoAbsolutePath)
         //val ctype = contentResolver?.getType(uri)
 
-        val stream = File(nextVideoAbsolutePath).inputStream()
+        val edited_video_path = getVideoFilePath(context)
+
+        val commandResize =  arrayOf("ffmpeg", "-y","-i", nextVideoAbsolutePath, "-strict","experimental","-s", "640x360", "-ab", "12288", "-vcodec", "mpeg4", "-b", "2097152", edited_video_path)
+
+        vk.run(commandResize, context?.filesDir?.absolutePath, context)
+
+        Log.d("AFTER FFMPEG", "PLEASE WORK")
+
+        val stream = File(edited_video_path).inputStream()
         val byteArray = stream?.readBytes()
 
 
-        val postBody = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("video","new_vid.mp4", RequestBody.create(MediaType.parse("video/mp4"), byteArray))
+        val postBody = MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("video","new_vid.mp4", RequestBody.create(MediaType.parse("video/mp4"), byteArray)).addFormDataPart("class", inputText.text.toString())
                 .build()
 
         postRequest(url, postBody)
 
+        isReadyToSend = false
         nextVideoAbsolutePath = null
-        startPreview()
     }
 
     private fun postRequest(postUrl: String, requestBody: RequestBody){
